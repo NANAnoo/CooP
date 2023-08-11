@@ -9,12 +9,12 @@
 #include <string.h>
 #include <stdio.h>
 
-//#define MALLOC_DEBUG
+#define MALLOC_DEBUG
 
 #ifdef MALLOC_DEBUG
 static int m_count = 0, f_count = 0;
 #endif
-void *m_malloc(size_t size, const char *type) {
+static void *m_malloc(size_t size, const char *type) {
 #ifdef MALLOC_DEBUG
     m_count ++;
     printf("[%d]my malloc %s\n", m_count, type);
@@ -23,7 +23,7 @@ void *m_malloc(size_t size, const char *type) {
     return malloc(size);
 }
 
-void m_free(void *ptr, const char *type) {
+static void m_free(void *ptr, const char *type) {
 #ifdef MALLOC_DEBUG
     f_count ++;
     printf("[%d]my free %s\n", f_count, type);
@@ -43,7 +43,7 @@ Constructor(T, NEW ,##__VA_ARGS__)
 CONSTRUCT(T, NEW ,##__VA_ARGS__)
 
 #define M_COPY(T) Constructor(T, COPY, T *other)
-#define COPY(T, other) CONSTRUCT(T, COPY, other)
+#define COPY(T, other) T##_Cons_COPY(T##_Ctor(), (other))
 
 #define M_MOVE(T) T * T##_Cons_MOVE(T **other) { T *this = NULL;
 #define MOVE(T, other) T##_Cons_MOVE(&other)
@@ -62,25 +62,44 @@ struct VTable##Type {      \
 
 #define SIZE_OF_VTABLE(T) (sizeof(VTable##T) / sizeof(void(*)(void)))
 
+typedef struct VTableCObject VTableCObject;
 typedef struct Class Class;
-typedef struct CObject {Class *isa;} CObject;
+typedef struct CObject {
+    Class *isa;
+} CObject;
 struct Class {
     Class *isa;
     Class *_super_;
     const char *_name_;
     int v_Tbl_size;
 };
+struct CObjectClass {
+    Class _meta_;
+    VTable(CObject, Root);
+};
 
-static Class CObjectClassMeta;
-typedef struct VTableCObject VTableCObject;
-struct CObjectClass {Class _meta_; VTable(CObject, Root);} CObjectClass = {&CObjectClassMeta, &CObjectClassMeta, "CObject", SIZE_OF_VTABLE(CObject), NULL};
-Destructor(CObject) {
+// global c-object base
+Class CObjectClassMeta;
+VTableCObject VTableCObject_tbl;
+struct CObjectClass CObjectClass;
+
+static void CObject_Dtor(CObject *this) {
     if (this) m_free(this, this->isa->_name_);
 }
-static VTableCObject VTableCObject_tbl = {{}, &CObject_Dtor};
-__attribute__((constructor)) void SET_C_OBJECT_v_tbl(){ CObjectClass.v_tbl = &VTableCObject_tbl;}
 
-static Class CObjectClassMeta = {NULL, (Class *)&CObjectClass, "CObjectClass", 0};
+static __attribute__((constructor)) void CONSTRUCT_C_OBJECT_BASE() {
+    CObjectClassMeta.isa = NULL;
+    CObjectClassMeta._super_ = (Class *)&CObjectClass;
+    CObjectClassMeta._name_ = "CObjectClass";
+    CObjectClassMeta.v_Tbl_size = 0;
+    VTableCObject_tbl._Dtor = &CObject_Dtor;
+
+    CObjectClass._meta_._super_ = &CObjectClassMeta;
+    CObjectClass._meta_.isa = &CObjectClassMeta;
+    CObjectClass._meta_._name_ = "CObject";
+    CObjectClass._meta_.v_Tbl_size = sizeof(VTableCObject_tbl) / sizeof(void *);
+    CObjectClass.v_tbl = &VTableCObject_tbl;
+}
 
 #define ClassOf(obj) ((CObject *)obj)->isa
 #define SuperClassOf(obj) ((Class *)ClassOf(obj)->_super_)
@@ -89,37 +108,48 @@ static Class CObjectClassMeta = {NULL, (Class *)&CObjectClass, "CObjectClass", 0
 #define CLASS_VARIABLES_END };
 
 
-#define CLASS(T, SUPER, ...) \
-static Class T##ClassMeta = {&SUPER##ClassMeta, (Class *) &(SUPER##Class), #T"Class"};\
-typedef struct T T;\
-struct T {\
-    SUPER _super_;\
-    __VA_ARGS__\
+#define CLASS(T, SUPER, ...)\
+    typedef struct T T;\
+    struct T {\
+        SUPER _super_;\
+        __VA_ARGS__\
+    };\
+    typedef struct VTable##T {\
+        VTable##SUPER _root_;\
+        void (*_Dtor)(T *);
+
+#define CLASS_END(T, SUPER) \
+    } VTable##T;\
+    struct T##Class {\
+        Class _meta_;\
+        VTable##T *v_tbl;\
+    };\
+    extern Class T##ClassMeta;\
+    extern struct T##Class T##Class;\
+    extern VTable##T VTable##T##_tbl;\
+    T *T##_Ctor();\
+    void T##_Dtor(T *);
+
+#define IMPL_CLASS(T, SUPER)\
+struct VTable##T VTable##T##_tbl = {{}, &T##_Dtor};\
+__attribute((constructor)) void Default_Vtable##T##_Setup(){\
+    VTable##T##_tbl._root_ = *((struct SUPER##Class*)(T##Class._meta_._super_))->v_tbl;\
+}\
+Class T##ClassMeta = {&SUPER##ClassMeta, (Class *) &(SUPER##Class), #T "Class"};\
+struct T##Class T##Class = {\
+    {\
+        &T##ClassMeta,\
+        (Class *) &SUPER##Class,\
+        #T,\
+        (sizeof(VTable##T) / sizeof(void (*)(void)))\
+    },\
+    &VTable##T##_tbl\
 };\
-void T##_Dtor(T *);\
-typedef struct VTable##T {\
-    VTable##SUPER _root_; \
-    void (*_Dtor)(T *);\
-
-#define METHODS_END(T, Super)\
-} VTable##T;\
-static struct VTable##T VTable##T##_tbl = {{}, &T##_Dtor};\
-struct T##Class { \
-    Class _meta_;\
-    VTable##T *v_tbl;\
-
-#define Finalize(T, obj) T##_Dtor(obj)
-
-#define END_CLASS(T, Super) \
-METHODS_END(T, Super)                               \
-};\
-static struct T##Class T##Class = {{&T##ClassMeta, (Class *) &Super##Class, #T, SIZE_OF_VTABLE(T)}, &VTable##T##_tbl};                            \
-__attribute__((constructor)) void SET_INHERIT_##T##_##Super() {VTable##T##_tbl._root_ = VTable##Super##_tbl;}                               \
 T *T##_Ctor() {\
     T *res = m_malloc(sizeof(T), #T);\
-    ((CObject *)res)->isa = (Class *)&T##Class;\
+    ((CObject *) res)->isa = (Class *) &T##Class;\
     return res;\
-}\
+}
 
 #define MF(T, name, ...) (*name)(T *this ,##__VA_ARGS__)
 
@@ -130,7 +160,7 @@ T *T##_Ctor() {\
      T##_Dtor(&val);                                        \
 }
 
-void Delete(CObject *obj) {
+void static Delete(CObject *obj) {
     Class *s_cls = SuperClassOf(obj);
     void (**FP_ARR)(CObject *) = (void (**)(CObject *)) ((struct CObjectClass *) ClassOf(obj))->v_tbl;
     if (FP_ARR == NULL) return;
@@ -151,7 +181,7 @@ ret M_METHOD_SEL(T, func)(T *this ,##__VA_ARGS__);
 
 #define MF_IMPL_(T, ret, func, ...) \
 ret M_METHOD_SEL(T, func)(T *this ,##__VA_ARGS__); \
-__attribute__((constructor)) void CTOR_SET_METHOD_##T##func() \
+__attribute__((constructor)) static void CTOR_SET_METHOD_##T##func() \
 {\
     SET_M_METHOD(T, func);\
 }                              \
@@ -160,11 +190,11 @@ ret M_METHOD_SEL(T, func) (T *this ,##__VA_ARGS__)
 #define MF_IMPL(T) MF_IMPL_(T,
 
 #define OVERRIDE_METHOD(Super, T, ret, func, ...) \
-ret M_METHOD_SEL(T, func)(Super *this ,##__VA_ARGS__); \
-__attribute__((constructor)) void CTOR_SET_METHOD_##T##func() \
+ret M_METHOD_SEL(T, func)(Super * ,##__VA_ARGS__); \
+__attribute__((constructor)) static void CTOR_SET_METHOD_##T##func() \
 {\
     ((VTable##Super *)&VTable##T##_tbl)->func = &M_METHOD_SEL(T, func);\
-}                              \
+}\
 ret M_METHOD_SEL(T, func) (Super *this ,##__VA_ARGS__)
 
 
@@ -176,7 +206,7 @@ ret M_METHOD_SEL(T, func) (Super *this ,##__VA_ARGS__)
 
 #define super (&this->_super_)
 
-int IsClass(CObject *obj, const char *T) {
+int static IsClass(CObject *obj, const char *T) {
     Class *cls = obj->isa;
     while (cls && !strcmp(cls->_name_, T)) {
         cls = cls->_super_;

@@ -21,7 +21,7 @@ CLASS(Base, CObject,
 
     void MF(Base, VMethod);
 
-END_CLASS(Base, CObject)
+CLASS_END(Base, CObject)
 
 // declare and implement interface Printable::Print
 IMPL(Base, Printable)
@@ -61,7 +61,7 @@ CLASS(Father, Base,
       int y;
 )
     void MF(Father, TestMethod2);
-END_CLASS(Father, Base)
+CLASS_END(Father, Base)
 
 M_NEW(Father, int val) {
     CtorSuper(Base, NEW, val + 1);
@@ -83,7 +83,7 @@ CLASS(Son, Father,
       int z;
 )
     void MF(Son, TestMethod3);
-END_CLASS(Son, Father)
+CLASS_END(Son, Father)
 
 MF_IMPL(Son)
 void , TestMethod3) {
@@ -105,13 +105,13 @@ Destructor(Son) {
 }
 
 #define SharedPtr(T) \
-CLASS(SharedPtr##T, CObject , \
-        T *ptr; \
+CLASS(SharedPtr##T, CObject,\
+        T *ptr;\
         int *ref; \
-) \
-END_CLASS(SharedPtr##T, CObject)        \
+)\
+CLASS_END(SharedPtr##T, CObject)\
 M_NEW(SharedPtr##T, T *Other) { \
-    this->ref = m_malloc(sizeof(int), "SharedPtr<"#T">"); \
+    this->ref = m_malloc(sizeof(int), ""#T" *obj"); \
     *this->ref = 1; \
     this->ptr = Other; \
     return this; \
@@ -121,26 +121,34 @@ M_COPY(SharedPtr##T) { \
     this->ptr = other->ptr; \
     ++(*this->ref); \
     return this; \
-} \
+}\
 Destructor(SharedPtr##T) { \
     (*this->ref) --; \
     if ((*this->ref) <= 0) { \
-        m_free(this->ref, "SharedPtr<"#T">"); \
+        m_free(this->ref, ""#T" *obj"); \
         DELETE(this->ptr);\
     }\
-}
-#define Ref(T) SharedPtr##T
-#define Get(P) P->ptr
+}                    \
+typedef SharedPtr##T * Shared##T;       \
+void SharedPtr##T##CleanUp(SharedPtrBase **ref) {if (ref && (*ref)) {DELETE(*ref);}}
 
+#define SHARED(T) __attribute((cleanup(SharedPtr##T##CleanUp))) SharedPtr##T*
+#define Get(P) P->ptr
+#define Ref(T, P) COPY(SharedPtr##T, P)
+#define MAKE_SHARED(T, ...) SharedPtr##T##_Cons_NEW(SharedPtr##T##_Ctor(), Base_Cons_NEW(T##_Ctor() ,##__VA_ARGS__))
+
+// declare class shared ptr
 SharedPtr(Base)
+// Describe body
+
+IMPL_CLASS(SharedPtrBase , CObject)
+IMPL_CLASS(Base, CObject)
+IMPL_CLASS(Father , Base)
+IMPL_CLASS(Son , Father)
 
 int main() {
-    Base *b = NEW(Base, 10);
-    Ref(Base) *res = NEW(Ref(Base), b);
-
-    printf("class is %s \n", ClassOf(Get(res))->_name_);
-
-    DELETE(res);
-
+    SHARED(Base) res = MAKE_SHARED(Base, 10);
+    SHARED(Base) ref2 = Ref(Base, res);
+    printf("class is %s \n", ClassOf(Get(ref2))->_name_);
     return 0;
 }
