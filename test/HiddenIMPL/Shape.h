@@ -11,8 +11,9 @@ typedef struct Vec2 {
     float y;
 } Vec2;
 
-CLASS(Shape, CObject,
-      Vec2 Origin;
+CLASS(Shape, CObject)
+
+Vec2 Origin;
 )
     float MF(Shape, GetArea);
 CLASS_END(Shape, CObject)

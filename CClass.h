@@ -107,8 +107,8 @@ static __attribute__((constructor)) void CONSTRUCT_C_OBJECT_BASE() {
 #define CLASS_VARIABLES_BEGIN(T, Super) struct T { Super _super_;
 #define CLASS_VARIABLES_END };
 
-
-#define CLASS(T, SUPER, ...)\
+#define CLASS(T, SUPER) CLASS_(T, SUPER,
+#define CLASS_(T, SUPER, ...)\
     typedef struct T T;\
     struct T {\
         SUPER _super_;\

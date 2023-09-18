@@ -6,7 +6,7 @@
 #define OOPC_TRIANGLE_H
 #include "Shape.h"
 
-CLASS(Triangle, Shape,
+CLASS(Triangle, Shape)
     Vec2 P1;
     Vec2 P2;
 )

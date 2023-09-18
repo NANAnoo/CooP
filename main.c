@@ -15,7 +15,7 @@ Interface(Testable,
           void virtual(Test, const char *);
 )
 
-CLASS(Base, CObject,
+CLASS(Base, CObject)
       int x;
 )I(Printable)I(Testable)
 
@@ -57,7 +57,7 @@ Destructor(Base) {
     printf("Base dealloc %d \n", this->x);
 }
 
-CLASS(Father, Base,
+CLASS(Father, Base)
       int y;
 )
     void MF(Father, TestMethod2);
@@ -79,7 +79,7 @@ Destructor(Father) {
     printf("Father dealloc %d \n", this->y);
 }
 
-CLASS(Son, Father,
+CLASS(Son, Father)
       int z;
 )
     void MF(Son, TestMethod3);
@@ -105,7 +105,7 @@ Destructor(Son) {
 }
 
 #define SharedPtr(T) \
-CLASS(SharedPtr##T, CObject,\
+CLASS(SharedPtr##T, CObject)\
         T *ptr;\
         int *ref; \
 )\
